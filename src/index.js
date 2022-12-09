@@ -17,3 +17,18 @@ module.exports.path = function () {
 
   throw new Error('p2pd binary not found, it may not be installed or an error may have occurred during installation')
 }
+
+module.exports.relayPath = function () {
+  const paths = [
+    path.resolve(path.join(__dirname, '..', 'relayd')),
+    path.resolve(path.join(__dirname, '..', 'relayd.exe'))
+  ]
+
+  for (const bin of paths) {
+    if (fs.existsSync(bin)) {
+      return bin
+    }
+  }
+
+  throw new Error('relayd binary not found, it may not be installed or an error may have occurred during installation')
+}

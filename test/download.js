@@ -3,7 +3,7 @@
 const test = require('tape-promise').default(require('tape'))
 const fs = require('fs/promises')
 const download = require('../src/download')
-const { path: detectLocation } = require('../')
+const { path: detectLocation, relayPath } = require('../')
 const clean = require('./fixtures/clean')
 
 test('Ensure libp2p gets downloaded (current version and platform)', async (t) => {
@@ -15,6 +15,15 @@ test('Ensure libp2p gets downloaded (current version and platform)', async (t) =
   t.ok(stats, 'go-libp2p was downloaded')
   t.ok(installPath, detectLocation(), 'go-libp2p binary was detected')
 
+  t.end()
+})
+
+test('Ensure relay daemon gets downloaded (current version and platform)', async (t) => {
+  await clean()
+  const installPath = await download('relayd')
+  const stats = await fs.stat(installPath)
+  t.ok(stats, 'relayd was downloaded')
+  t.ok(installPath, relayPath(), 'relayd binary was detected')
   t.end()
 })
 

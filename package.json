@@ -12,10 +12,12 @@
   },
   "pre-commit": "restore-bin",
   "bin": {
-    "go-libp2p": "bin/p2pd"
+    "go-libp2p": "bin/p2pd",
+    "libp2p-relay-daemon": "bin/relayd"
   },
   "files": [
     "bin/p2pd",
+    "bin/relayd",
     "dist",
     "src"
   ],

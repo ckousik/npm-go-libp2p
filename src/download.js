@@ -12,7 +12,7 @@ const path = require('path')
 const got = require('got').default
 const tarFS = require('tar-fs')
 const unzip = require('unzip-stream')
-const { latest, versions } = require('./versions')
+const { latest, versions, relayLatest, relayVersions } = require('./versions')
 const fs = require('fs')
 // @ts-ignore no types
 const cachedir = require('cachedir')
@@ -93,16 +93,20 @@ function unpack (url, installPath, stream) {
 }
 
 /**
+ * @param {'relayd' | 'p2pd'} [binary]
  * @param {string} [version]
  * @param {string} [platform]
  * @param {string} [arch]
  * @param {string} [installPath]
  */
-function cleanArguments (version, platform, arch, installPath) {
-  const conf = pkgConf.sync('go-libp2p', {
+function clean (binary, version, platform, arch, installPath) {
+  const isRelay = binary === 'relayd'
+  const pkgName = isRelay ? 'libp2p-relay-daemon' : 'go-libp2p'
+  version = version || (isRelay ? relayLatest : latest)
+  const conf = pkgConf.sync(pkgName, {
     cwd: process.env.INIT_CWD || process.cwd(),
     defaults: {
-      version: version || latest,
+      version: version,
       distUrl: 'https://ipfs.io'
     }
   })
@@ -112,7 +116,8 @@ function cleanArguments (version, platform, arch, installPath) {
     platform: process.env.TARGET_OS || platform || os.platform(),
     arch: process.env.TARGET_ARCH || arch || goenv.GOARCH,
     distUrl: process.env.GO_LIBP2P_DIST_URL || conf.distUrl,
-    installPath: installPath ? path.resolve(installPath) : process.cwd()
+    installPath: installPath ? path.resolve(installPath) : process.cwd(),
+    binary
   }
 }
 
@@ -121,9 +126,11 @@ function cleanArguments (version, platform, arch, installPath) {
  * @param {string} platform
  * @param {string} arch
  * @param {string} distUrl
+ * @param {Record<string, import('./versions').Version>} versionMap
  */
-async function getDownloadURL (version, platform, arch, distUrl) {
-  const versionData = versions[version]
+async function getDownloadURL (version, platform, arch, distUrl, versionMap) {
+  const v = versionMap || versions
+  const versionData = v[version]
 
   if (versionData == null) {
     throw new Error(`Version '${version}' not available`)
@@ -144,35 +151,44 @@ async function getDownloadURL (version, platform, arch, distUrl) {
 
 /**
  * @param {object} options
+ * @param { 'relayd' | 'p2pd' } [options.binary]
  * @param {string} options.version
  * @param {string} options.platform
  * @param {string} options.arch
  * @param {string} options.installPath
  * @param {string} options.distUrl
  */
-async function download ({ version, platform, arch, installPath, distUrl }) {
-  const url = await getDownloadURL(version, platform, arch, distUrl)
+async function download ({ binary = 'p2pd', version, platform, arch, installPath, distUrl }) {
+  const url = await getDownloadURL(version, platform, arch, distUrl, binary === 'p2pd' ? versions : relayVersions)
   const data = await cachingFetchAndVerify(url)
 
   await unpack(url, installPath, data)
   console.info(`Unpacked ${installPath}`)
 
-  return path.join(installPath, `p2pd${platform === 'windows' ? '.exe' : ''}`)
+  // hack for relay daemon
+  if (binary === 'relayd') {
+    fs.renameSync(path.resolve(installPath, 'libp2p-relay-daemon/libp2p-relay-daemon'), path.resolve(installPath, 'relayd'))
+  }
+
+  return path.join(installPath, `${binary}${platform === 'windows' ? '.exe' : ''}`)
 }
 
 /**
  * @param {object} options
+ * @param {'p2pd' | 'relayd'} [options.binary]
  * @param {string} options.depBin
  */
-async function link ({ depBin }) {
-  let localBin = path.resolve(path.join(__dirname, '..', 'bin', 'p2pd'))
+async function link ({ binary = 'p2pd', depBin }) {
+  let localBin = path.resolve(path.join(__dirname, '..', 'bin', binary))
+  console.info('localBin: ', localBin)
+  console.info('depBin: ', depBin)
 
   if (isWin) {
     localBin += '.exe'
   }
 
   if (!fs.existsSync(depBin)) {
-    throw new Error('p2pd binary not found. maybe go-libp2p did not install correctly?')
+    throw new Error(`${binary} binary not found. maybe ${binary} did not install correctly?`)
   }
 
   if (fs.existsSync(localBin)) {
@@ -184,37 +200,45 @@ async function link ({ depBin }) {
 
   if (isWin) {
     // On Windows, update the shortcut file to use the .exe
-    const cmdFile = path.join(__dirname, '..', '..', 'p2pd.cmd')
+    const cmdFile = path.join(__dirname, '..', '..', `${binary}.cmd`)
 
     fs.writeFileSync(cmdFile, `@ECHO OFF
-  "%~dp0\\node_modules\\go-libp2p\\bin\\p2pd.exe" %*`)
+  "%~dp0\\node_modules\\go-libp2p\\bin\\${binary}.exe" %*`)
   }
 
-  // test libp2p installed correctly.
-  var result = cproc.spawnSync(localBin, ['--help'])
-  if (result.error) {
-    throw new Error('p2pd binary failed: ' + result.error)
-  }
-
-  var outstr = result.stderr.toString()
-  var m = /Usage of/.exec(outstr)
-
-  if (!m) {
-    console.info(outstr, m)
-    throw new Error('Could not execute p2pd')
+  if (binary === 'p2pd') {
+    verifyP2pd(localBin)
   }
 
   return localBin
 }
 
 /**
+ *
+ * @param {string} localBin
+ */
+function verifyP2pd (localBin) {
+  const result = cproc.spawnSync(localBin, ['--help'])
+  if (result.error) {
+    throw new Error('p2pd binary failed: ' + result.error)
+  }
+
+  const outstr = result.stderr.toString()
+  const m = /Usage of/.exec(outstr)
+  if (!m) {
+    console.info(outstr, m)
+    throw new Error('could not execute p2pd')
+  }
+}
+/**
+ * @param { 'p2pd' | 'relayd' } [binary]
  * @param {string} [version]
  * @param {string} [platform]
  * @param {string} [arch]
  * @param {string} [installPath]
  */
-module.exports = async (version, platform, arch, installPath) => {
-  const args = cleanArguments(version, platform, arch, installPath)
+module.exports = async (binary = 'p2pd', version, platform, arch, installPath) => {
+  const args = clean(binary, version, platform, arch, installPath)
 
   return link({
     ...args,

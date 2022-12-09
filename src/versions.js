@@ -51,7 +51,20 @@ const versions = {
   }
 }
 
+/**
+ * map versions to libp2p-relay-daemon cid
+ */
+const relayVersions = {
+  'v0.3.0': {
+    darwin: 'Qmc8rABHW9UBXiJ88DK9KH9pgJDZzADvWF8KxAPqTuoxeF',
+    linux: 'QmSpRFtm2NWiqCkAeY13x2x5JSBX816HQxJnGLMQ2ZoqVe',
+    win32: 'Qmd7NLNVaNK8RqvxE7AdosSCXWjBJDrm85eLirgJLFK5q7'
+  }
+}
+
 module.exports = {
   latest: 'v0.11.0',
-  versions
+  versions,
+  relayLatest: 'v0.3.0',
+  relayVersions
 }
